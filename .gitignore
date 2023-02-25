@@ -1,0 +1,5 @@
+.idea
+venv
+.env
+videos
+vk_config.v2.json
