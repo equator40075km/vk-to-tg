@@ -17,7 +17,7 @@ def captcha_handler(captcha):
     return captcha.try_again(key)
 
 
-def get_largest_image_url_v2(sizes: list) -> str:
+def get_largest_image_url(sizes: list) -> str:
     urls = {size['type']: index for index, size in enumerate(sizes)}
     if 'w' in urls:
         return sizes[urls['w']]['url']
