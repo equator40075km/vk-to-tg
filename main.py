@@ -35,6 +35,12 @@ def get_largest_image_url(sizes: list) -> str:
         return sizes[0]['url']
 
 
+def clear_videos_dir() -> None:
+    for adrs, _, files in os.walk('videos'):
+        for file in files:
+            os.remove(os.path.join(adrs, file))
+
+
 def main():
     vk_session = vk_api.VkApi(
         login=os.getenv('VK_LOGIN'),
@@ -46,7 +52,7 @@ def main():
     try:
         vk_session.auth(token_only=True)
     except Exception as e:
-        logger.error(f"Vk auth error: {e}")
+        logger.error(f"Vk auth error:\n{e}")
         return
 
     vk_longpoll = VkBotLongPoll(
@@ -60,14 +66,13 @@ def main():
     for event in vk_longpoll.listen():
         if event.type == VkBotEventType.WALL_POST_NEW and event.obj.post_type == 'post':
 
-            media_group = []
+            photo_urls = []
             video_urls = []
-            opened_files = []
+            opened_videos = []
 
             for attachment in event.obj.attachments:
                 if attachment['type'] == 'photo':
-                    photo_url = get_largest_image_url(attachment['photo']['sizes'])
-                    media_group.append(types.InputMediaPhoto(photo_url))
+                    photo_urls.append(get_largest_image_url(attachment['photo']['sizes']))
 
                 if attachment['type'] == 'video':
                     owner_id = str(attachment['video']['owner_id']).replace('-', '')
@@ -80,7 +85,7 @@ def main():
                         })
                         video_urls.append(videos['items'][0]['player'])
                     except Exception as e:
-                        logger.error(f"Vk video.get error: {e}")
+                        logger.error(f"Vk video.get error:\n{e}")
 
             try:
                 ydl_opts = {
@@ -89,16 +94,11 @@ def main():
                 with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                     ydl.download(video_urls)
             except Exception as e:
-                logger.error(f"Download videos error: {e}")
+                logger.error(f"Download videos error:\n{e}")
 
             for adrs, _, files in os.walk('videos'):
                 for file in files:
-                    tmp = open(os.path.join(adrs, file), 'rb')
-                    opened_files.append(tmp)
-                    media_group.append(types.InputMediaVideo(tmp))
-
-            if len(media_group) == 0:
-                continue
+                    opened_videos.append(open(os.path.join(adrs, file), 'rb'))
 
             caption = f'{event.obj.text}'
             if event.obj.signer_id is not None:
@@ -114,6 +114,47 @@ def main():
                 else:
                     caption += f"\n\nАвтор - https://vk.com/id{event.obj.signer_id}"
 
+            if not photo_urls and not opened_videos:
+                try:
+                    tg_bot.send_message(
+                        chat_id=tg_chat_id,
+                        text=caption,
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    logger.error(f"Send text only error:\n{e}")
+                continue
+
+            if len(photo_urls) == 1 and not opened_videos:
+                try:
+                    tg_bot.send_photo(
+                        chat_id=tg_chat_id,
+                        photo=photo_urls[0],
+                        caption=caption
+                    )
+                except Exception as e:
+                    logger.error(f"Telegram sendPhoto error:\n{e}")
+                continue
+
+            if len(opened_videos) == 1 and not photo_urls:
+                try:
+                    tg_bot.send_video(
+                        chat_id=tg_chat_id,
+                        video=opened_videos[0],
+                        caption=caption
+                    )
+                except Exception as e:
+                    logger.error(f"Telegram sendVideo error:\n{e}")
+
+                opened_videos[0].close()
+                clear_videos_dir()
+
+            media_group = []
+            for photo_url in photo_urls:
+                media_group.append(types.InputMediaPhoto(photo_url))
+            for o_video in opened_videos:
+                media_group.append(types.InputMediaVideo(o_video))
+
             media_group[0].parse_mode = 'HTML'
             media_group[0].caption = caption
 
@@ -123,16 +164,14 @@ def main():
                     media=media_group
                 )
             except Exception as e:
-                logger.error(f"Send media exception: {e}")
+                logger.error(f"Send media exception:\n{e}")
 
-            time.sleep(5)
+            time.sleep(2)
 
-            for o_file in opened_files:
-                o_file.close()
+            for o_video in opened_videos:
+                o_video.close()
 
-            for adrs, _, files in os.walk('videos'):
-                for file in files:
-                    os.remove(os.path.join(adrs, file))
+            clear_videos_dir()
 
 
 if __name__ == '__main__':
