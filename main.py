@@ -1,9 +1,11 @@
 import os
+import time
 import vk_api
 import youtube_dl
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from dotenv import load_dotenv
 from telebot import TeleBot, types, formatting
+from logger import logger
 
 
 def auth_handler():
@@ -44,7 +46,7 @@ def main():
     try:
         vk_session.auth(token_only=True)
     except Exception as e:
-        print('Vk auth ERROR:', e, sep='\n')
+        logger.error(f"Vk auth error: {e}")
         return
 
     vk_longpoll = VkBotLongPoll(
@@ -71,12 +73,14 @@ def main():
                     owner_id = str(attachment['video']['owner_id']).replace('-', '')
                     video_id = str(attachment['video']['id'])
 
-                    videos = vk_session.method('video.get', {
-                        'owner_id': owner_id,
-                        'videos': f"{str(attachment['video']['owner_id'])}_{video_id}"
-                    })
-
-                    video_urls.append(videos['items'][0]['player'])
+                    try:
+                        videos = vk_session.method('video.get', {
+                            'owner_id': owner_id,
+                            'videos': f"{str(attachment['video']['owner_id'])}_{video_id}"
+                        })
+                        video_urls.append(videos['items'][0]['player'])
+                    except Exception as e:
+                        logger.error(f"Vk video.get error: {e}")
 
             try:
                 ydl_opts = {
@@ -85,7 +89,7 @@ def main():
                 with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                     ydl.download(video_urls)
             except Exception as e:
-                print('Download VIDEOS error:', e, sep='\n')
+                logger.error(f"Download videos error: {e}")
 
             for adrs, _, files in os.walk('videos'):
                 for file in files:
@@ -119,7 +123,9 @@ def main():
                     media=media_group
                 )
             except Exception as e:
-                print('Send MEDIA exception:', e, sep='\n')
+                logger.error(f"Send media exception: {e}")
+
+            time.sleep(5)
 
             for o_file in opened_files:
                 o_file.close()
