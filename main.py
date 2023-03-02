@@ -1,45 +1,14 @@
 import os
 import vk_api
 import youtube_dl
+from common import auth_handler, captcha_handler, get_largest_image_url, clear_videos_dir
 from longpoll import MyVkBotLongPoll
 from vk_api.bot_longpoll import VkBotEventType
 from dotenv import load_dotenv
 from telebot import TeleBot, types, formatting
 from logger import logger
 from moviepy.video.io.VideoFileClip import VideoFileClip
-
-
-def auth_handler():
-    key = input('Authentication code: ')
-    return key, False
-
-
-def captcha_handler(captcha):
-    print('Captcha handler:', captcha)
-    key = input("Enter captcha code {0}: ".format(captcha.get_url())).strip()
-    return captcha.try_again(key)
-
-
-def get_largest_image_url(sizes: list) -> str:
-    urls = {size['type']: index for index, size in enumerate(sizes)}
-    if 'w' in urls:
-        return sizes[urls['w']]['url']
-    elif 'z' in urls:
-        return sizes[urls['z']]['url']
-    elif 'y' in urls:
-        return sizes[urls['y']]['url']
-    elif 'x' in urls:
-        return sizes[urls['x']]['url']
-    elif 'r' in urls:
-        return sizes[urls['r']]['url']
-    else:
-        return sizes[0]['url']
-
-
-def clear_videos_dir() -> None:
-    for adrs, _, files in os.walk('videos'):
-        for file in files:
-            os.remove(os.path.join(adrs, file))
+from typing import List, IO
 
 
 def main():
@@ -68,10 +37,10 @@ def main():
         if event.type == VkBotEventType.WALL_POST_NEW and event.obj.post_type == 'post':
 
             skip_post = False
-            photo_urls = []
-            video_urls = []
+            photo_urls: List[str] = []
+            video_urls: List[str] = []
             video_objects = {}  # video_name -> vk video object
-            opened_videos = []
+            opened_videos: List[IO] = []
 
             for attachment in event.obj.attachments:
                 if attachment['type'] == 'photo':
@@ -94,6 +63,7 @@ def main():
                         skip_post = True
                         break
 
+                # skip post with attachment types other than [photo, video]
                 else:
                     skip_post = True
                     break
@@ -122,7 +92,7 @@ def main():
             # make caption (post text)
             caption = f'{event.obj.text}'
             if event.obj.signer_id is not None:
-                from_user = ''
+                from_user = {}
                 try:
                     from_user = vk_session.method('users.get', {
                         'user_ids': event.obj.signer_id
@@ -183,10 +153,11 @@ def main():
 
 
 if __name__ == '__main__':
+    load_dotenv()
+
     try:
         os.mkdir('videos')
     except FileExistsError:
         pass
 
-    load_dotenv()
     main()
