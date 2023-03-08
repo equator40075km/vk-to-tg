@@ -1,8 +1,7 @@
 import os
-import vk_api
 import youtube_dl
-from common import auth_handler, captcha_handler, get_largest_image_url, clear_videos_dir
-from longpoll import MyVkBotLongPoll
+from common import get_largest_image_url, clear_videos_dir
+from vk import get_vk_session, get_vk_longpoll
 from vk_api.bot_longpoll import VkBotEventType
 from dotenv import load_dotenv
 from telebot import TeleBot, types, formatting
@@ -11,24 +10,11 @@ from moviepy.video.io.VideoFileClip import VideoFileClip
 from typing import List, IO
 
 
-def main():
-    vk_session = vk_api.VkApi(
-        login=os.getenv('VK_LOGIN'),
-        password=os.getenv('VK_PASSWORD'),
-        auth_handler=auth_handler,
-        captcha_handler=captcha_handler
-    )
-
-    try:
-        vk_session.auth(token_only=True)
-    except Exception as e:
-        logger.error(f"Vk auth error:\n{e}")
+def main() -> None:
+    vk_session = get_vk_session()
+    vk_longpoll = get_vk_longpoll()
+    if vk_session is None or vk_longpoll is None:
         return
-
-    vk_longpoll = MyVkBotLongPoll(
-        vk_api.VkApi(token=os.getenv('VK_GROUP_TOKEN')),
-        os.getenv('VK_GROUP_ID')
-    )
 
     tg_bot = TeleBot(os.getenv('TG_TOKEN'))
     tg_chat_id = os.getenv('TG_CHAT_ID')
@@ -84,10 +70,18 @@ def main():
             # convert videos to mp4, collect opened video files for InputVideoMedia
             for adrs, _, files in os.walk('videos'):
                 for file in files:
-                    v_clip = VideoFileClip(os.path.join(adrs, file))
-                    v_clip.write_videofile(filename=os.path.join(adrs, file) + '.mp4', codec='libx264')
-                    v_clip.close()
-                    opened_videos.append(open(os.path.join(adrs, file) + '.mp4', 'rb'))
+                    try:
+                        v_clip = VideoFileClip(os.path.join(adrs, file))
+                        v_clip.write_videofile(
+                            filename=os.path.join(adrs, file) + '.mp4',
+                            codec='libx264',
+                            temp_audiofile=os.getcwd() + "/videos/temp_audiofile.mp4"
+                        )
+                        v_clip.close()
+                        opened_videos.append(open(os.path.join(adrs, file) + '.mp4', 'rb'))
+                    except Exception as e:
+                        logger.exception(f"Convert video exception:\n{e}")
+                        clear_videos_dir()
 
             # make caption (post text)
             caption = f'{event.obj.text}'
@@ -110,14 +104,7 @@ def main():
 
             # text only post
             if not photo_urls and not opened_videos:
-                try:
-                    tg_bot.send_message(
-                        chat_id=tg_chat_id,
-                        text=caption,
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logger.error(f"Send text only error:\n{e}")
+                clear_videos_dir()
                 continue
 
             # collecting media group
@@ -160,4 +147,8 @@ if __name__ == '__main__':
     except FileExistsError:
         pass
 
-    main()
+    while True:
+        try:
+            main()
+        except Exception as e:
+            logger.exception(e)
